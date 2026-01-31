@@ -1,5 +1,5 @@
 // ========================================================================================
-// FaultManager.cpp  (CONTEXT-BASED / PINMAP-CORRECT)
+// FaultManager.cpp  (PHASE 1 / TASK 5 – CENTRAL SAFE STATE)
 // ========================================================================================
 #include "FaultManager.h"
 
@@ -14,17 +14,25 @@
 // ========================================================================================
 extern RuntimeContext g_ctx;
 
-// ---------------- HW hooks (INTENTIONAL EXTERN) ----------------
+// ---------------- HW hooks (LOW LEVEL) ----------------
 extern void driveSafe();
 extern Servo bladeServo;
 
 // ============================================================================
-// FAULT STATE (OWNED HERE)
+// FAULT STATE (OWNED HERE ONLY)
 // ============================================================================
 static FaultCode activeFault = FaultCode::NONE;
+static bool safeStateEntered = false;   // idempotent guard
 
 // ============================================================================
-// LATCH FAULT (NO POLICY, SNAPSHOT ONLY)
+// READ ACTIVE FAULT
+// ============================================================================
+FaultCode getActiveFault() {
+  return activeFault;
+}
+
+// ============================================================================
+// LATCH FAULT (SNAPSHOT ONLY – NO ACTION)
 // ============================================================================
 void latchFault(FaultCode code) {
 
@@ -71,24 +79,34 @@ void latchFault(FaultCode code) {
 }
 
 // ============================================================================
-// IMMEDIATE HARD CUT (LAST LINE OF DEFENSE)
+// CENTRAL SAFE STATE (SINGLE SOURCE OF KILL)
 // ============================================================================
-void handleFaultImmediateCut() {
+void enterSafeState(FaultCode code) {
+
+  if (safeStateEntered) return;   // idempotent
+  safeStateEntered = true;
+
+  // ---- latch fault if not already ----
+  latchFault(code);
+
+  // ---- system state ----
+  g_ctx.systemState = SystemState::FAULT;
+  g_ctx.driveState  = DriveState::LOCKED;
+  g_ctx.bladeState  = BladeState::LOCKED;
 
 #if DEBUG_SERIAL
-  static bool printed = false;
-  if (!printed) {
-    Serial.println(F("[FAULT] IMMEDIATE HARD CUT"));
-    printed = true;
-  }
+  Serial.print(F("[SAFE STATE] ENTER, fault="));
+  Serial.println((uint8_t)code);
 #endif
 
   // -----------------------------
-  // MOTOR DRIVE (PWM + DIR)
+  // MOTOR DRIVE (PWM OFF)
   // -----------------------------
   driveSafe();
   g_ctx.curL = 0;
   g_ctx.curR = 0;
+  g_ctx.targetL = 0;
+  g_ctx.targetR = 0;
 
   // -----------------------------
   // DRIVER ENABLE
@@ -98,13 +116,34 @@ void handleFaultImmediateCut() {
   // -----------------------------
   // ENGINE / BLADE
   // -----------------------------
-  bladeServo.writeMicroseconds(1000);
+  bladeServo.writeMicroseconds(1000);     // idle throttle
   digitalWrite(PIN_RELAY_IGNITION, LOW);
   digitalWrite(PIN_RELAY_STARTER,  LOW);
 
   // -----------------------------
-  // ALERT / BUZZER
+  // ALERT
   // -----------------------------
+  digitalWrite(PIN_BUZZER, HIGH);
+  digitalWrite(PIN_RELAY_WARN, HIGH);
+}
+
+// ============================================================================
+// IMMEDIATE HARD CUT (LOW LEVEL, NO POLICY)
+// ============================================================================
+void handleFaultImmediateCut() {
+
+  // ใช้เฉพาะกรณีสุดท้ายจริง ๆ
+#if DEBUG_SERIAL
+  Serial.println(F("[FAULT] IMMEDIATE HARD CUT"));
+#endif
+
+  driveSafe();
+  digitalWrite(PIN_DRIVER_ENABLE, LOW);
+
+  bladeServo.writeMicroseconds(1000);
+  digitalWrite(PIN_RELAY_IGNITION, LOW);
+  digitalWrite(PIN_RELAY_STARTER,  LOW);
+
   digitalWrite(PIN_BUZZER, HIGH);
   digitalWrite(PIN_RELAY_WARN, HIGH);
 }

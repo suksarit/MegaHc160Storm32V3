@@ -1,14 +1,11 @@
 // ========================================================================================
-// SDLogger.cpp  (CONTEXT-BASED / HARDENED)
+// SDLogger.cpp  (PHASE 1 / CONTEXT-BASED / HARDENED)
 // ========================================================================================
-
 #include "SDLogger.h"
-#include "PinMap.h"
 #include "SystemConfig.h"
 #include "RuntimeContext.h"
+#include "FaultManager.h"
 
-// ========================================================================================
-// GLOBAL CONTEXT
 // ========================================================================================
 extern RuntimeContext g_ctx;
 
@@ -18,6 +15,7 @@ extern RuntimeContext g_ctx;
 static File logFile;
 static bool sdReady = false;
 static uint32_t lastLog_ms = 0;
+static uint32_t lastLoop_ms = 0;
 
 // ring buffer
 static SDLogRecord logBuf[SD_LOG_BUFFER_SIZE];
@@ -33,13 +31,12 @@ static void writeHeader() {
   if (!logFile) return;
 
   logFile.println(
-    F("time_ms,"
-      "curL1,curL2,curR1,curR2,"
-      "curMax,"
-      "tempDL,tempDR,"
-      "volt24,"
+    F("time,loop_dt,"
+      "curL1,curL2,curR1,curR2,curMax,"
+      "tempDL,tempDR,volt,"
       "pwmL,pwmR,"
-      "system,drive,blade,safety,event,fault")
+      "system,drive,blade,safety,event,"
+      "faultLatched,faultCode")
   );
   logFile.flush();
 }
@@ -65,14 +62,10 @@ bool SDLogger::begin() {
   sdReady = false;
   wrIdx = rdIdx = logCount = 0;
   lastLog_ms = 0;
+  lastLoop_ms = millis();
 
-  if (!SD.begin(PIN_SD_CS)) {
-    return false;
-  }
-
-  if (!openNewFile()) {
-    return false;
-  }
+  if (!SD.begin(PIN_SD_CS)) return false;
+  if (!openNewFile()) return false;
 
   writeHeader();
   sdReady = true;
@@ -86,13 +79,8 @@ static void tryRecover() {
   logFile.close();
   sdReady = false;
 
-  if (!SD.begin(PIN_SD_CS)) {
-    return;
-  }
-
-  if (!openNewFile()) {
-    return;
-  }
+  if (!SD.begin(PIN_SD_CS)) return;
+  if (!openNewFile()) return;
 
   writeHeader();
   sdReady = true;
@@ -101,57 +89,37 @@ static void tryRecover() {
 // ========================================================================================
 // STATUS
 // ========================================================================================
-bool SDLogger::isReady() {
-  return sdReady;
-}
-
-bool SDLogger::bufferFull() {
-  return (logCount >= SD_LOG_BUFFER_SIZE);
-}
-
-uint8_t SDLogger::pending() {
-  return logCount;
-}
+bool SDLogger::isReady() { return sdReady; }
+bool SDLogger::bufferFull() { return logCount >= SD_LOG_BUFFER_SIZE; }
+uint8_t SDLogger::pending() { return logCount; }
 
 // ========================================================================================
-// LOG (FAST PATH — TELEMETRY BUFFER ONLY)
+// LOG (FAST PATH)
 // ========================================================================================
 void SDLogger::log(uint32_t now) {
 
-  if (!sdReady) {
-    tryRecover();
-    return;
-  }
-
+  if (!sdReady) { tryRecover(); return; }
   if (now - lastLog_ms < SD_LOG_PERIOD_MS) return;
-  lastLog_ms = now;
-
   if (logCount >= SD_LOG_BUFFER_SIZE) return;
 
   SDLogRecord &r = logBuf[wrIdx];
 
-  r.time_ms = now;
+  r.time_ms   = now;
+  r.loop_dt_ms = (uint16_t)(now - lastLoop_ms);
+  lastLoop_ms = now;
 
-  // currents
-  for (uint8_t i = 0; i < 4; i++) {
-    r.curA[i] = g_ctx.curA[i];
-  }
+  for (uint8_t i = 0; i < 4; i++) r.curA[i] = g_ctx.curA[i];
 
-  r.curMax = max(
-    max(g_ctx.curA[0], g_ctx.curA[1]),
-    max(g_ctx.curA[2], g_ctx.curA[3])
-  );
+  r.curMax = max(max(r.curA[0], r.curA[1]),
+                 max(r.curA[2], r.curA[3]));
 
-  // temps / voltage
   r.tempDriverL = g_ctx.tempDriverL;
   r.tempDriverR = g_ctx.tempDriverR;
   r.engineVolt  = g_ctx.engineVolt;
 
-  // pwm
   r.pwmL = g_ctx.curL;
   r.pwmR = g_ctx.curR;
 
-  // states
   r.systemState = (uint8_t)g_ctx.systemState;
   r.driveState  = (uint8_t)g_ctx.driveState;
   r.bladeState  = (uint8_t)g_ctx.bladeState;
@@ -159,13 +127,15 @@ void SDLogger::log(uint32_t now) {
   r.driveEvent  = (uint8_t)g_ctx.lastDriveEvent;
 
   r.faultLatched = g_ctx.faultLatched ? 1 : 0;
+  r.faultCode    = g_ctx.faultLatched ? (uint8_t)getActiveFault() : 0;
 
   wrIdx = (wrIdx + 1) % SD_LOG_BUFFER_SIZE;
   logCount++;
+  lastLog_ms = now;
 }
 
 // ========================================================================================
-// FLUSH (SLOW PATH — TIME BUDGETED)
+// FLUSH (SLOW PATH)
 // ========================================================================================
 void SDLogger::flush() {
 
@@ -174,82 +144,29 @@ void SDLogger::flush() {
     return;
   }
 
-  uint32_t start_us = micros();
-
   SDLogRecord &r = logBuf[rdIdx];
 
   logFile.print(r.time_ms); logFile.print(',');
+  logFile.print(r.loop_dt_ms); logFile.print(',');
 
-  logFile.print(r.curA[0], 2); logFile.print(',');
-  logFile.print(r.curA[1], 2); logFile.print(',');
-  logFile.print(r.curA[2], 2); logFile.print(',');
-  logFile.print(r.curA[3], 2); logFile.print(',');
+  for (uint8_t i = 0; i < 4; i++) {
+    logFile.print(r.curA[i], 2); logFile.print(',');
+  }
 
   logFile.print(r.curMax, 2); logFile.print(',');
-
   logFile.print(r.tempDriverL); logFile.print(',');
   logFile.print(r.tempDriverR); logFile.print(',');
-
   logFile.print(r.engineVolt, 2); logFile.print(',');
-
   logFile.print(r.pwmL); logFile.print(',');
   logFile.print(r.pwmR); logFile.print(',');
-
   logFile.print(r.systemState); logFile.print(',');
-  logFile.print(r.driveState);  logFile.print(',');
-  logFile.print(r.bladeState);  logFile.print(',');
+  logFile.print(r.driveState); logFile.print(',');
+  logFile.print(r.bladeState); logFile.print(',');
   logFile.print(r.safetyState); logFile.print(',');
-  logFile.print(r.driveEvent);  logFile.print(',');
-  logFile.println(r.faultLatched);
+  logFile.print(r.driveEvent); logFile.print(',');
+  logFile.print(r.faultLatched); logFile.print(',');
+  logFile.println(r.faultCode);
 
   rdIdx = (rdIdx + 1) % SD_LOG_BUFFER_SIZE;
   logCount--;
-
-  static uint8_t flushCnt = 0;
-  if (++flushCnt >= 20) {
-    flushCnt = 0;
-    logFile.flush();
-  }
-
-  if (micros() - start_us > SD_LOG_WRITE_BUDGET_US) {
-    return;
-  }
-}
-
-// ========================================================================================
-// WARN EVENT LOG (IMMEDIATE, EVENT-BASED)
-// ========================================================================================
-void SDLogger::logWarn(uint32_t now,
-                       const float curA[4],
-                       int16_t tempL,
-                       int16_t tempR,
-                       SafetyState safety) {
-
-  (void)curA;   // kept for API compatibility
-  (void)tempL;
-  (void)tempR;
-  (void)safety;
-
-  if (!sdReady || !logFile) {
-    tryRecover();
-    return;
-  }
-
-  float curMax = max(
-    max(g_ctx.curA[0], g_ctx.curA[1]),
-    max(g_ctx.curA[2], g_ctx.curA[3])
-  );
-
-  // format: time,WARN,curMax,tempL,tempR,safety
-  logFile.print(now);
-  logFile.print(F(",WARN,"));
-  logFile.print(curMax, 2);
-  logFile.print(',');
-  logFile.print(g_ctx.tempDriverL);
-  logFile.print(',');
-  logFile.print(g_ctx.tempDriverR);
-  logFile.print(',');
-  logFile.println((uint8_t)g_ctx.driveSafety);
-
-  logFile.flush();   // WARN = event สำคัญ
 }
