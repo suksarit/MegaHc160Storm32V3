@@ -1,5 +1,5 @@
 // ========================================================================================
-// FaultManager.h  (PHASE 1 / TASK 5.1 – CENTRAL SAFE STATE)
+// FaultManager.h
 // ========================================================================================
 #pragma once
 
@@ -10,7 +10,7 @@
 // FAULT CODE (SINGLE SOURCE OF TRUTH)
 // ============================================================================
 enum class FaultCode : uint8_t {
-  NONE = 0,
+  NONE,
 
   // ===== Communication =====
   IBUS_LOST,
@@ -33,43 +33,16 @@ enum class FaultCode : uint8_t {
 };
 
 // ============================================================================
-// PUBLIC API – FAULT CONTROL
+// PHASE 2 – PUBLIC API
 // ============================================================================
 
-/**
- * @brief Latch fault code ครั้งเดียว (ไม่ overwrite)
- *        - บันทึก fault
- *        - set g_ctx.faultLatched = true
- *        - ❌ ไม่ตัด hardware
- */
-void latchFault(FaultCode code);
-
-/**
- * @brief อ่าน fault ที่ถูก latch ไว้
- *        ใช้สำหรับ logging / SD / debug
- */
-FaultCode getActiveFault();
-
-/**
- * @brief เข้าสู่ Safe State แบบ deterministic (CENTRAL KILL SWITCH)
- *
- * Behavior:
- *  - latch fault (ถ้ายังไม่ latch)
- *  - systemState = FAULT
- *  - ตัด motor PWM
- *  - disable driver
- *  - stop blade
- *  - cut ignition + starter
- *  - activate buzzer / warn relay
- *
- * ❗ เป็นฟังก์ชันเดียวที่ “ฆ่าของจริง”
- * ❗ เรียกจาก loop / watchdog / state machine เท่านั้น
- */
+// 👉 เข้า safe state (state transition เท่านั้น)
+// ❗ ไม่ตัดฮาร์ดแวร์
 void enterSafeState(FaultCode code);
 
-/**
- * @brief Immediate hard cut (LOW LEVEL, NO POLICY)
- *        ใช้เฉพาะกรณีสุดท้ายจริง ๆ
- *        (ยังคงไว้เพื่อ compatibility)
- */
+// อ่าน fault ที่ถูก latch
+FaultCode getActiveFault();
+
+// 👉 ตัดฮาร์ดแวร์จริง (motor / blade / ignition)
+// ❗ เรียกเฉพาะตอน exit loop หรือ escalation
 void handleFaultImmediateCut();

@@ -11,6 +11,7 @@
 
 // ================= API =================
 namespace CurrentSensor {
+   void setOffset(uint8_t ch, float v);
 
   // ต้องส่ง ADS1115 จากภายนอก (owner = .ino)
   void begin(Adafruit_ADS1115 &ads);

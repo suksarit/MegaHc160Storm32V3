@@ -1,12 +1,14 @@
 // ========================================================================================
-// SDLogger.h  (PHASE 1)
+// SDLogger.h  (PHASE 1 + PHASE 2 RECOVERY EVENT)
 // ========================================================================================
 #pragma once
 
 #include <Arduino.h>
 #include <SD.h>
+
 #include "PinMap.h"
 #include "SystemTypes.h"
+#include "FaultManager.h"   // <<< สำคัญมาก: FaultCode อยู่ที่นี่
 
 // ========================================================================================
 // CONFIG
@@ -21,7 +23,7 @@
 struct SDLogRecord {
 
   uint32_t time_ms;
-  uint16_t loop_dt_ms;     // ★ NEW: loop health
+  uint16_t loop_dt_ms;     // loop health
 
   float    curA[4];
   float    curMax;
@@ -40,7 +42,7 @@ struct SDLogRecord {
   uint8_t  driveEvent;
 
   uint8_t  faultLatched;
-  uint8_t  faultCode;      // ★ NEW
+  uint8_t  faultCode;
 };
 
 // ========================================================================================
@@ -48,6 +50,7 @@ struct SDLogRecord {
 // ========================================================================================
 namespace SDLogger {
 
+  // ---- phase 1 telemetry ----
   bool begin();
   void log(uint32_t now);
   void logWarn(uint32_t now,
@@ -60,4 +63,19 @@ namespace SDLogger {
   bool isReady();
   bool bufferFull();
   uint8_t pending();
+
+  // ======================================================================================
+  // PHASE 2: RECOVERY / RETRY EVENT LOG
+  // ======================================================================================
+
+  // tag ตัวอย่าง:
+  // "ENTER_RECOVERY", "AUTO_RECOVER_OK",
+  // "MANUAL_CONFIRM", "BLACKLIST_LOCKOUT", "RETRY_LOCKOUT"
+  void logRecoveryEvent(const char* tag,
+                        FaultCode fault,
+                        uint8_t recoveryMode);
+
+  // retry counter log
+  void logRecoveryRetry(FaultCode fault,
+                        uint8_t retryCount);
 }

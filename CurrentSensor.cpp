@@ -5,9 +5,6 @@
 #include "SystemConfig.h"
 #include <math.h>
 
-// ================= EXTERN (owner = .ino) =================
-extern float g_acsOffsetV[4];
-
 // ================= CONSTANTS (HARDWARE) =================
 static constexpr float ACS_SENS_V_PER_A = 0.04f;
 static constexpr float ADS_LSB_V        = 4.096f / 32768.0f;
@@ -22,6 +19,11 @@ static float curA[CUR_CHANNELS] = {0};
 
 // activity tracking PER CHANNEL (FIX)
 static uint32_t lastActivity_ms[CUR_CHANNELS] = {0};
+static float g_acsOffsetV[4] = {2.5f, 2.5f, 2.5f, 2.5f};
+
+void CurrentSensor::setOffset(uint8_t ch, float v) {
+  if (ch < 4) g_acsOffsetV[ch] = v;
+}
 
 // ================= IMPLEMENT =================
 void CurrentSensor::begin(Adafruit_ADS1115 &ads) {

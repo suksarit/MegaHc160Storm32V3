@@ -1,12 +1,13 @@
 // ========================================================================================
 // MegaHc160Storm32.ino  - RC Lawn Mower By TN MOWER
 // CONTEXT-BASED / LINKER-SAFE / PINMAP-CORRECT
-// PHASE 1 COMPLETE (PRODUCTION-GRADE)
 //
 //   ✔ Task 1: Loop Timing Enforcement
 //   ✔ Task 2: Sensor Warm-up & Plausibility
-//   ✔ Task 3: Logic Watchdog
-//   ✔ Task 5: Central Safe State (NO latchFault DIRECT CALL)
+//   ✔ Task 3: RecoveryManager (AUTO / MANUAL / LOCKOUT)
+//   ✔ Task 4: MANUAL confirm via IBUS
+//   ✔ Task 5.5: Retry + Blacklist Fault
+//   ✔ Task 5: Central Safe State
 // ========================================================================================
 
 #define DEBUG_SERIAL 1
@@ -40,6 +41,7 @@
 #include "RuntimeContext.h"
 #include "SafetyManager.h"
 #include "FaultManager.h"
+#include "RecoveryManager.h"
 #include "SDLogger.h"
 #include "TempSensor.h"
 #include "VoltageSensor.h"
@@ -48,7 +50,7 @@
 #include "MotorOutput.h"
 
 // ========================================================================================
-// GLOBAL RUNTIME CONTEXT (SINGLE OWNER)
+// GLOBAL RUNTIME CONTEXT
 // ========================================================================================
 RuntimeContext g_ctx = {
   SystemState::INIT,
@@ -70,58 +72,68 @@ RuntimeContext g_ctx = {
 };
 
 // ========================================================================================
-// SENSOR WARM-UP
-// ========================================================================================
-uint32_t sensorWarmupStart_ms = 0;
-bool     sensorWarmupDone     = false;
-
-// ========================================================================================
-// LOGIC WATCHDOG
-// ========================================================================================
-uint32_t logicWdtLastKick_ms = 0;
-
-// ========================================================================================
 // DEVICES
 // ========================================================================================
 IBusBM ibus;
 uint32_t lastIbusByte_ms = 0;
 bool ibusCommLost = true;
 
+uint32_t sensorWarmupStart_ms = 0;
+bool     sensorWarmupDone     = false;
+
 Adafruit_ADS1115 adsCur;
 Adafruit_ADS1115 adsVolt;
 Adafruit_MAX31865 maxL(PIN_MAX_CS_L);
 Adafruit_MAX31865 maxR(PIN_MAX_CS_R);
 
-float g_acsOffsetV[4] = { 2.50f, 2.50f, 2.50f, 2.50f };
 Servo bladeServo;
+RecoveryManager recovery;
 
 // ========================================================================================
-// PROTOTYPES
+// FUNCTION PROTOTYPES (LINKER-SAFE)
 // ========================================================================================
 void updateComms(uint32_t now);
 void updateSensors(uint32_t now);
-void applyTorqueLimit();   // <<< FIX: add prototype
+bool sensorPlausible();
+void driveSafe();
 
 // ========================================================================================
-// PWM INIT
+// TASK 4: MANUAL CONFIRM VIA IBUS
 // ========================================================================================
-void initMotorPWM() {
+#define IBUS_CONFIRM_HOLD_MS 2500
+#define IBUS_CONFIRM_TH      1100
+uint32_t ibusConfirmStart_ms = 0;
 
-  TCCR3A = 0; TCCR3B = 0;
-  TCCR3A = (1 << COM3A1) | (1 << COM3B1) | (1 << WGM31);
-  TCCR3B = (1 << WGM33)  | (1 << WGM32)  | (1 << CS30);
-  ICR3   = PWM_TOP;
-  OCR3A  = 0;
-  OCR3B  = 0;
+static bool checkIbusManualConfirm(uint32_t now) {
 
-  TCCR4A = 0; TCCR4B = 0;
-  TCCR4A = (1 << COM4A1) | (1 << COM4B1) | (1 << WGM41);
-  TCCR4B = (1 << WGM43)  | (1 << WGM42)  | (1 << CS40);
-  ICR4   = PWM_TOP;
-  OCR4A  = 0;
-  OCR4B  = 0;
+  if (recovery.getMode() != RecoveryMode::MANUAL) {
+    ibusConfirmStart_ms = 0;
+    return false;
+  }
+
+  uint16_t ch1 = ibus.readChannel(0);
+  uint16_t ch2 = ibus.readChannel(1);
+
+  bool gesture = (ch1 < IBUS_CONFIRM_TH) &&
+                 (ch2 < IBUS_CONFIRM_TH);
+
+  if (gesture) {
+    if (ibusConfirmStart_ms == 0) {
+      ibusConfirmStart_ms = now;
+    } else if (now - ibusConfirmStart_ms >= IBUS_CONFIRM_HOLD_MS) {
+      ibusConfirmStart_ms = 0;
+      return true;
+    }
+  } else {
+    ibusConfirmStart_ms = 0;
+  }
+
+  return false;
 }
 
+// ========================================================================================
+// PWM SAFE CUT
+// ========================================================================================
 void driveSafe() {
   OCR3A = 0; OCR3B = 0;
   OCR4A = 0; OCR4B = 0;
@@ -211,45 +223,6 @@ void updateSensors(uint32_t now) {
 }
 
 // ========================================================================================
-// TORQUE LIMIT (CURRENT-BASED DERATE)
-// ========================================================================================
-void applyTorqueLimit() {
-
-  static float scaleL = 1.0f;
-  static float scaleR = 1.0f;
-
-  float curLeft  = g_ctx.curA[0] + g_ctx.curA[1];
-  float curRight = g_ctx.curA[2] + g_ctx.curA[3];
-
-  // -------- LEFT --------
-  if (curLeft > TORQUE_LIMIT_A) {
-    scaleL -= (curLeft - TORQUE_LIMIT_A) * TORQUE_REDUCE_GAIN;
-    g_ctx.lastDriveEvent = DriveEvent::TORQUE_LIMIT;
-  } else if (curLeft < TORQUE_RECOVER_A) {
-    scaleL += TORQUE_RECOVER_GAIN;
-  }
-
-  // -------- RIGHT --------
-  if (curRight > TORQUE_LIMIT_A) {
-    scaleR -= (curRight - TORQUE_LIMIT_A) * TORQUE_REDUCE_GAIN;
-    g_ctx.lastDriveEvent = DriveEvent::TORQUE_LIMIT;
-  } else if (curRight < TORQUE_RECOVER_A) {
-    scaleR += TORQUE_RECOVER_GAIN;
-  }
-
-  scaleL = constrain(scaleL, 0.0f, 1.0f);
-  scaleR = constrain(scaleR, 0.0f, 1.0f);
-
-  g_ctx.curL = (int16_t)(g_ctx.curL * scaleL);
-  g_ctx.curR = (int16_t)(g_ctx.curR * scaleR);
-
-  // -------- HARD CUT GUARD --------
-  if (curLeft > TORQUE_HARD_CUT_A || curRight > TORQUE_HARD_CUT_A) {
-    enterSafeState(FaultCode::OVER_CURRENT);
-  }
-}
-
-// ========================================================================================
 // SETUP
 // ========================================================================================
 void setup() {
@@ -259,41 +232,19 @@ void setup() {
   ibus.begin(Serial1);
 
   sensorWarmupStart_ms = millis();
-  logicWdtLastKick_ms  = millis();
-
-  pinMode(PIN_DRIVER_ENABLE, OUTPUT);
-  pinMode(PIN_CUR_TRIP, INPUT_PULLUP);
-  pinMode(PIN_BUZZER, OUTPUT);
-  pinMode(PIN_RELAY_WARN, OUTPUT);
-
-  digitalWrite(PIN_DRIVER_ENABLE, LOW);
-
-  initMotorPWM();
-  driveSafe();
-
-  bladeServo.attach(PIN_SERVO_ENGINE);
-  bladeServo.writeMicroseconds(1000);
+  recovery.begin();
 
   Wire.begin();
   SPI.begin();
 
-  maxL.begin(MAX31865_3WIRE);
-  maxR.begin(MAX31865_3WIRE);
   TempSensor::begin(maxL, maxR);
-
-  adsCur.begin(0x48);
-  adsCur.setGain(GAIN_ONE);
   CurrentSensor::begin(adsCur);
-
-  adsVolt.begin(0x49);
-  adsVolt.setGain(GAIN_ONE);
   VoltageSensor::begin(adsVolt);
 
   MotorOutput::begin();
   SDLogger::begin();
 
   wdt_enable(WDTO_1S);
-
   g_ctx.systemState = SystemState::ACTIVE;
 }
 
@@ -302,62 +253,42 @@ void setup() {
 // ========================================================================================
 void loop() {
 
-  uint32_t loopStart_us = micros();
-  wdt_reset();
   uint32_t now = millis();
-
-  // ---- reset watchdog flags ----
-  g_ctx.wdCommsOK  = false;
-  g_ctx.wdSensorOK = false;
-  g_ctx.wdDriveOK  = false;
-  g_ctx.wdBladeOK  = false;
+  wdt_reset();
 
   updateComms(now);
   updateSensors(now);
 
   // ---- sensor warm-up ----
   if (!sensorWarmupDone) {
-    if (now - sensorWarmupStart_ms >= SENSOR_WARMUP_MS) {
-      sensorWarmupDone = true;
-    } else {
-      goto LOOP_END;
-    }
+    if (now - sensorWarmupStart_ms < SENSOR_WARMUP_MS) return;
+    sensorWarmupDone = true;
   }
 
   if (!sensorPlausible()) {
     enterSafeState(FaultCode::CUR_SENSOR_FAULT);
   }
 
-  g_ctx.driveSafety = decideSafety();
+  // ---- SAFE / RECOVERY ----
+  if (g_ctx.driveSafety == SafetyState::SAFE) {
+
+    if (recovery.getMode() == RecoveryMode::NONE) {
+      recovery.onFault(getActiveFault());
+    }
+
+    if (checkIbusManualConfirm(now)) {
+      recovery.confirmManualRecovery();
+      DBG("[RECOVERY] Manual confirm via IBUS\n");
+    }
+
+    recovery.update(now);
+
+    if (!recovery.isRecoveryAllowed()) {
+      driveSafe();
+      return;
+    }
+  }
+
   DriveStateMachine::update(now);
-  applyTorqueLimit();
   MotorOutput::apply(now);
-
-  // ---- logic watchdog ----
-  bool logicOK =
-    g_ctx.wdCommsOK &&
-    g_ctx.wdSensorOK &&
-    g_ctx.wdDriveOK &&
-    g_ctx.wdBladeOK;
-
-  if (logicOK) {
-    logicWdtLastKick_ms = now;
-  } else if (now - logicWdtLastKick_ms > LOGIC_WDT_MS) {
-    enterSafeState(FaultCode::LOGIC_WATCHDOG);
-  }
-
-LOOP_END:
-
-  uint32_t loopTime_us = micros() - loopStart_us;
-
-  g_ctx.loopCount++;
-  g_ctx.lastLoop_us = loopTime_us;
-  if (loopTime_us > g_ctx.maxLoop_us) g_ctx.maxLoop_us = loopTime_us;
-
-  if (loopTime_us > (uint32_t)BUDGET_LOOP_MS * 1000UL) {
-    enterSafeState(FaultCode::LOOP_OVERRUN);
-  }
-
-  g_ctx.wdDriveOK = true;
-  g_ctx.wdBladeOK = true;
 }

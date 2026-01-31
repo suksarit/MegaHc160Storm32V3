@@ -170,3 +170,36 @@ void SDLogger::flush() {
   rdIdx = (rdIdx + 1) % SD_LOG_BUFFER_SIZE;
   logCount--;
 }
+// ========================================================================================
+// RECOVERY / RETRY EVENT LOG (PHASE 2)
+// ========================================================================================
+void SDLogger::logRecoveryEvent(const char* tag,
+                                FaultCode fault,
+                                uint8_t recoveryMode) {
+
+  if (!sdReady || !logFile) return;
+
+  logFile.print(millis());
+  logFile.print(",RECOVERY,");
+  logFile.print(tag);
+  logFile.print(",FAULT=");
+  logFile.print((uint8_t)fault);
+  logFile.print(",MODE=");
+  logFile.println(recoveryMode);
+
+  logFile.flush();
+}
+
+void SDLogger::logRecoveryRetry(FaultCode fault,
+                                uint8_t retryCount) {
+
+  if (!sdReady || !logFile) return;
+
+  logFile.print(millis());
+  logFile.print(",RECOVERY,RETRY,FAULT=");
+  logFile.print((uint8_t)fault);
+  logFile.print(",COUNT=");
+  logFile.println(retryCount);
+
+  logFile.flush();
+}
