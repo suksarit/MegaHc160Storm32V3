@@ -1,11 +1,13 @@
 // ========================================================================================
-// SDLogger.cpp
+// SDLogger.cpp  (FIXED / HARDENED)
 // ========================================================================================
 
 #include "SDLogger.h"
+#include "PinMap.h"
+#include "SystemConfig.h"
 
 // ========================================================================================
-// EXTERN RUNTIME DATA (มาจาก MegaHc160Storm32.ino)
+// EXTERN RUNTIME DATA (owner = .ino)
 // ========================================================================================
 extern float     curA[4];
 extern float     engineVolt;
@@ -54,34 +56,58 @@ static void writeHeader() {
   logFile.flush();
 }
 
-// ========================================================================================
-// BEGIN
-// ========================================================================================
-bool SDLogger::begin() {
-
-  sdReady = false;
-  wrIdx = rdIdx = logCount = 0;
-
-  if (!SD.begin(SD_LOG_CS_PIN)) {
-    return false;
-  }
+static bool openNewFile() {
 
   char fname[13];
   for (uint16_t i = 0; i < 1000; i++) {
     sprintf(fname, "LOG%03u.CSV", i);
     if (!SD.exists(fname)) {
       logFile = SD.open(fname, FILE_WRITE);
-      break;
+      return (bool)logFile;
     }
   }
+  return false;
+}
 
-  if (!logFile) {
+// ========================================================================================
+// BEGIN / RECOVER
+// ========================================================================================
+bool SDLogger::begin() {
+
+  sdReady = false;
+  wrIdx = rdIdx = logCount = 0;
+  lastLog_ms = 0;
+
+  if (!SD.begin(PIN_SD_CS)) {
+    return false;
+  }
+
+  if (!openNewFile()) {
     return false;
   }
 
   writeHeader();
   sdReady = true;
   return true;
+}
+
+static void tryRecover() {
+
+  if (sdReady && logFile) return;
+
+  logFile.close();
+  sdReady = false;
+
+  if (!SD.begin(PIN_SD_CS)) {
+    return;
+  }
+
+  if (!openNewFile()) {
+    return;
+  }
+
+  writeHeader();
+  sdReady = true;
 }
 
 // ========================================================================================
@@ -104,7 +130,11 @@ uint8_t SDLogger::pending() {
 // ========================================================================================
 void SDLogger::log(uint32_t now) {
 
-  if (!sdReady) return;
+  if (!sdReady) {
+    tryRecover();
+    return;
+  }
+
   if (now - lastLog_ms < SD_LOG_PERIOD_MS) return;
   lastLog_ms = now;
 
@@ -148,9 +178,10 @@ void SDLogger::log(uint32_t now) {
 // ========================================================================================
 void SDLogger::flush() {
 
-  if (!sdReady) return;
-  if (!logFile) return;
-  if (logCount == 0) return;
+  if (!sdReady || !logFile || logCount == 0) {
+    tryRecover();
+    return;
+  }
 
   uint32_t start_us = micros();
 
@@ -203,7 +234,10 @@ void SDLogger::logWarn(uint32_t now,
                        int16_t tempR,
                        SafetyState safety) {
 
-  if (!sdReady || !logFile) return;
+  if (!sdReady || !logFile) {
+    tryRecover();
+    return;
+  }
 
   float curMax = max(
     max(curA[0], curA[1]),

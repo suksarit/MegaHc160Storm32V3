@@ -1,11 +1,15 @@
 // ========================================================================================
-// MotorOutput.h
+// MotorOutput.h  (FIXED / HARDWARE-OWNED)
 // ========================================================================================
 #pragma once
 #include <Arduino.h>
 
 namespace MotorOutput {
 
+  // ต้องเรียกครั้งเดียวใน setup()
+  void begin();
+
+  // เรียกทุก loop
   void apply(uint32_t now);
 
 }

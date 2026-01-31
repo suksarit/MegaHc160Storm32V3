@@ -28,6 +28,7 @@
 #include <Adafruit_ADS1X15.h>
 #include <Adafruit_MAX31865.h>
 
+#include "PinMap.h"
 #include "SystemTypes.h"
 #include "SystemConfig.h"
 #include "SafetyManager.h"
@@ -37,23 +38,18 @@
 #include "VoltageSensor.h"
 #include "CurrentSensor.h"
 #include "DriveStateMachine.h"
+#include "MotorOutput.h"
 
 // ========================================================================================
-// HARDWARE PIN MAP
+// HARDWARE (NON-DRIVE PERIPHERALS – KEEP FEATURE)
 // ========================================================================================
-constexpr uint8_t PIN_DRV_ENABLE = 33;
-
-constexpr uint8_t DIR_L1 = 5;  // OC3A
-constexpr uint8_t DIR_L2 = 2;  // OC3B
-constexpr uint8_t DIR_R1 = 6;  // OC4A
-constexpr uint8_t DIR_R2 = 7;  // OC4B
-
+constexpr uint8_t PIN_DRV_ENABLE   = 33;
 constexpr uint8_t SERVO_ENGINE_PIN = 9;
-constexpr uint8_t MAX_CS_L = 49;
-constexpr uint8_t MAX_CS_R = 48;
-constexpr uint8_t PIN_BUZZER = 30;
-constexpr uint8_t RELAY_WARN = 31;
-constexpr uint8_t PIN_CUR_TRIP = 32;
+constexpr uint8_t MAX_CS_L         = 49;
+constexpr uint8_t MAX_CS_R         = 48;
+constexpr uint8_t PIN_BUZZER       = 30;
+constexpr uint8_t RELAY_WARN       = 31;
+constexpr uint8_t PIN_CUR_TRIP     = 32;
 
 // ========================================================================================
 // SYSTEM STATES (OWNED HERE)
@@ -83,21 +79,15 @@ Adafruit_MAX31865 maxR(MAX_CS_R);
 // ========================================================================================
 // CURRENT SENSOR OFFSET (ACS OFFSET OWNERSHIP)
 // ========================================================================================
-// ใช้โดย CurrentSensor.cpp (extern)
-float g_acsOffsetV[4] = {
-  2.50f,   // Left motor A
-  2.50f,   // Left motor B
-  2.50f,   // Right motor A
-  2.50f    // Right motor B
-};
+float g_acsOffsetV[4] = { 2.50f, 2.50f, 2.50f, 2.50f };
 
 // ========================================================================================
 // DRIVE VALUES
 // ========================================================================================
 int16_t targetL = 0;
 int16_t targetR = 0;
-int16_t curL = 0;
-int16_t curR = 0;
+int16_t curL    = 0;
+int16_t curR    = 0;
 
 // ========================================================================================
 // ENGINE
@@ -108,9 +98,9 @@ float engineVolt = 0.0f;
 // ========================================================================================
 // SENSOR RUNTIME
 // ========================================================================================
-float   curA[4] = {0};
-int16_t tempDriverL = 0;
-int16_t tempDriverR = 0;
+float   curA[4]        = {0};
+int16_t tempDriverL    = 0;
+int16_t tempDriverR    = 0;
 
 // ========================================================================================
 // TORQUE / WARN STATUS
@@ -126,13 +116,13 @@ volatile bool wdDriveOK  = false;
 volatile bool wdBladeOK  = false;
 
 // ========================================================================================
-// FUNCTION PROTOTYPES (REQUIRED IN .ino)
+// FUNCTION PROTOTYPES
 // ========================================================================================
 void updateComms(uint32_t now);
 void updateSensors(uint32_t now);
 
 // ========================================================================================
-// PWM INIT
+// PWM INIT (KEEP FEATURE – TIMER3 / TIMER4 @15kHz)
 // ========================================================================================
 void initMotorPWM() {
 
@@ -140,19 +130,17 @@ void initMotorPWM() {
   TCCR3A = (1 << COM3A1) | (1 << COM3B1) | (1 << WGM31);
   TCCR3B = (1 << WGM33)  | (1 << WGM32)  | (1 << CS30);
   ICR3 = PWM_TOP;
-  OCR3A = 0;
-  OCR3B = 0;
+  OCR3A = 0; OCR3B = 0;
 
   TCCR4A = 0; TCCR4B = 0;
   TCCR4A = (1 << COM4A1) | (1 << COM4B1) | (1 << WGM41);
   TCCR4B = (1 << WGM43)  | (1 << WGM42)  | (1 << CS40);
   ICR4 = PWM_TOP;
-  OCR4A = 0;
-  OCR4B = 0;
+  OCR4A = 0; OCR4B = 0;
 }
 
 // ========================================================================================
-// HARD CUT
+// HARD CUT (USED BY SAFETY & MOTOROUTPUT)
 // ========================================================================================
 void driveSafe() {
   OCR3A = 0; OCR3B = 0;
@@ -166,29 +154,22 @@ bool checkCurrentSpike(uint32_t now) {
 
   static uint32_t spikeStart_ms = 0;
 
-  float curMax = max(
-    max(curA[0], curA[1]),
-    max(curA[2], curA[3])
-  );
+  float curMax = max(max(curA[0], curA[1]), max(curA[2], curA[3]));
 
   if (curMax >= CUR_SPIKE_A) {
-
     if (spikeStart_ms == 0) spikeStart_ms = now;
-
     if (now - spikeStart_ms >= 4) {
       lastDriveEvent = DriveEvent::WHEEL_LOCK;
       return true;
     }
-
   } else {
     spikeStart_ms = 0;
   }
-
   return false;
 }
 
 // ========================================================================================
-// TORQUE LIMIT (CURRENT-BASED, SOFT → WARN)
+// TORQUE LIMIT (CURRENT-BASED)
 // ========================================================================================
 void applyTorqueLimit() {
 
@@ -220,52 +201,10 @@ void applyTorqueLimit() {
   curL = (int16_t)(curL * scaleL);
   curR = (int16_t)(curR * scaleR);
 
-  if (curLeft > TORQUE_HARD_CUT_A ||
-      curRight > TORQUE_HARD_CUT_A) {
-
+  if (curLeft > TORQUE_HARD_CUT_A || curRight > TORQUE_HARD_CUT_A) {
     lastDriveEvent = DriveEvent::WHEEL_LOCK;
     latchFault(FaultCode::OVER_CURRENT);
   }
-}
-
-// ========================================================================================
-// APPLY DRIVE OUTPUT (PWM + DEADTIME)
-// ========================================================================================
-void applyDriveOutput() {
-
-  static int8_t lastDirL = 0;
-  static int8_t lastDirR = 0;
-
-  if (driveSafety == SafetyState::EMERGENCY ||
-      driveState  == DriveState::LOCKED) {
-
-    driveSafe();
-    lastDirL = lastDirR = 0;
-    curL = curR = 0;
-    return;
-  }
-
-  int8_t dirL = (curL > 0) - (curL < 0);
-  int8_t dirR = (curR > 0) - (curR < 0);
-
-  uint16_t dutyL = constrain(abs(curL), 0, PWM_TOP);
-  uint16_t dutyR = constrain(abs(curR), 0, PWM_TOP);
-
-  if (dirL != lastDirL && lastDirL != 0) {
-    driveSafe();
-    delayMicroseconds(PWM_DEADTIME_US);
-  }
-  OCR3A = (dirL > 0) ? dutyL : 0;
-  OCR3B = (dirL < 0) ? dutyL : 0;
-  lastDirL = dirL;
-
-  if (dirR != lastDirR && lastDirR != 0) {
-    driveSafe();
-    delayMicroseconds(PWM_DEADTIME_US);
-  }
-  OCR4A = (dirR > 0) ? dutyR : 0;
-  OCR4B = (dirR < 0) ? dutyR : 0;
-  lastDirR = dirR;
 }
 
 // ========================================================================================
@@ -311,16 +250,14 @@ void updateSensors(uint32_t now) {
     return;
   }
 
-  for (uint8_t i = 0; i < 4; i++) {
-    curA[i] = CurrentSensor::get(i);
-  }
+  for (uint8_t i = 0; i < 4; i++) curA[i] = CurrentSensor::get(i);
 
-  if (!TempSensor::update(tempDriverL, tempDriverR)) {
+  if (!TempSensor::update(tempDriverL, tempDriverR, now)) {
     latchFault(FaultCode::TEMP_SENSOR_FAULT);
     return;
   }
 
-  if (!VoltageSensor::update(engineVolt)) {
+  if (!VoltageSensor::update(engineVolt, now)) {
     latchFault(FaultCode::VOLT_SENSOR_FAULT);
     return;
   }
@@ -335,16 +272,9 @@ void setup() {
 
   Serial.begin(115200);
   Serial1.begin(115200);
-
   ibus.begin(Serial1);
 
   pinMode(PIN_DRV_ENABLE, OUTPUT);
-
-  pinMode(DIR_L1, OUTPUT);
-  pinMode(DIR_L2, OUTPUT);
-  pinMode(DIR_R1, OUTPUT);
-  pinMode(DIR_R2, OUTPUT);
-
   pinMode(PIN_CUR_TRIP, INPUT_PULLUP);
   pinMode(PIN_BUZZER, OUTPUT);
   pinMode(RELAY_WARN, OUTPUT);
@@ -353,37 +283,30 @@ void setup() {
   digitalWrite(RELAY_WARN, LOW);
   digitalWrite(PIN_DRV_ENABLE, LOW);
 
-  // PWM
   initMotorPWM();
   driveSafe();
 
-  // Servo
   bladeServo.attach(SERVO_ENGINE_PIN);
   bladeServo.writeMicroseconds(1000);
 
-  // Buses
   Wire.begin();
   SPI.begin();
 
-  // Temperature
   maxL.begin(MAX31865_3WIRE);
   maxR.begin(MAX31865_3WIRE);
   TempSensor::begin(maxL, maxR);
 
-  // Current
   adsCur.begin(0x48);
   adsCur.setGain(GAIN_ONE);
   CurrentSensor::begin(adsCur);
 
-  // Voltage
   adsVolt.begin(0x49);
   adsVolt.setGain(GAIN_ONE);
   VoltageSensor::begin(adsVolt);
 
-  // SD
+  MotorOutput::begin();
   SDLogger::begin();
 
-  // Watchdog
   wdt_enable(WDTO_1S);
 
   systemState = SystemState::ACTIVE;
@@ -428,13 +351,7 @@ void loop() {
     digitalWrite(RELAY_WARN, HIGH);
 
     if (!lastWarn) {
-      SDLogger::logWarn(
-        now,
-        curA,
-        tempDriverL,
-        tempDriverR,
-        driveSafety
-      );
+      SDLogger::logWarn(now, curA, tempDriverL, tempDriverR, driveSafety);
     }
 
   } else {
@@ -444,7 +361,7 @@ void loop() {
 
   lastWarn = (driveSafety == SafetyState::WARN);
 
-  applyDriveOutput();
+  MotorOutput::apply(now);
 
   if (faultLatched) {
     driveSafe();

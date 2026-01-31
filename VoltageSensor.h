@@ -1,5 +1,5 @@
 // ========================================================================================
-// VoltageSensor.h
+// VoltageSensor.h  (FIXED / MATCHED WITH .cpp)
 // ========================================================================================
 #pragma once
 
@@ -12,7 +12,11 @@ namespace VoltageSensor {
   void begin(Adafruit_ADS1115 &ads);
 
   // อ่านแรงดันระบบ (engine / battery bus)
-  // return true  = OK
-  // return false = sensor fault / implausible
-  bool update(float &engineVolt);
+  // engineVolt : ค่าแรงดัน (LPF)
+  // now        : เวลาปัจจุบันจาก millis()
+  //
+  // return true  = OK / usable
+  // return false = sensor fault / stale / implausible
+  bool update(float &engineVolt, uint32_t now);
+
 }

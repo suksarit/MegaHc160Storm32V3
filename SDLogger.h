@@ -1,23 +1,19 @@
 // ========================================================================================
-// SDLogger.h
+// SDLogger.h  
 // ========================================================================================
 #pragma once
 
 #include <Arduino.h>
 #include <SD.h>
+#include "PinMap.h"
 #include "SystemTypes.h"   // SystemState, DriveState, BladeState, SafetyState, DriveEvent
 
 // ========================================================================================
-// CONFIG
+// CONFIG (LOGGER BEHAVIOR)
 // ========================================================================================
-#define SD_LOG_PERIOD_MS   50      // 20 Hz
-#define SD_LOG_CS_PIN      53      // Mega2560 SD CS
-
-// ring buffer size
-#define SD_LOG_BUFFER_SIZE 6
-
-// จำกัดเวลาการเขียน SD ต่อครั้ง (us)
-#define SD_LOG_WRITE_BUDGET_US 2000
+#define SD_LOG_PERIOD_MS        50      // 20 Hz
+#define SD_LOG_BUFFER_SIZE      6
+#define SD_LOG_WRITE_BUDGET_US  2000    // จำกัดเวลาการเขียน SD ต่อครั้ง (us)
 
 // ========================================================================================
 // LOG RECORD STRUCT (PLAIN, POD, FIELD-SAFE)
@@ -51,7 +47,7 @@ struct SDLogRecord {
 namespace SDLogger {
 
   // --------------------------------------------------
-  // INIT
+  // INIT / RECOVER
   // --------------------------------------------------
   bool begin();
 

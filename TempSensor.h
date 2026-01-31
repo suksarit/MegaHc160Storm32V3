@@ -1,5 +1,5 @@
 // ========================================================================================
-// TempSensor.h
+// TempSensor.h  (FIXED / MATCHED WITH .cpp)
 // ========================================================================================
 #pragma once
 
@@ -12,8 +12,11 @@ namespace TempSensor {
   void begin(Adafruit_MAX31865 &left,
              Adafruit_MAX31865 &right);
 
-  // อ่านอุณหภูมิคนขับซ้าย/ขวา
-  // return true  = OK
-  // return false = sensor fault / plausibility fail
-  bool update(int16_t &tL, int16_t &tR);
+  // อ่านอุณหภูมิไดรเวอร์ซ้าย/ขวา
+  // tL, tR : อุณหภูมิ (°C, filtered)
+  // now    : millis()
+  //
+  // return true  = OK / usable
+  // return false = sensor stale / hard fault
+  bool update(int16_t &tL, int16_t &tR, uint32_t now);
 }
