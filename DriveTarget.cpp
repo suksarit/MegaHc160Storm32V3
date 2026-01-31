@@ -1,0 +1,82 @@
+// ========================================================================================
+// DriveTarget.cpp
+// ========================================================================================
+#include "DriveTarget.h"
+#include "SystemTypes.h"
+#include "SystemConfig.h"
+#include <IBusBM.h>
+
+// ================= EXTERN (จาก .ino) =================
+extern IBusBM ibus;
+
+extern int16_t targetL;
+extern int16_t targetR;
+
+extern bool ibusCommLost;
+extern SystemState systemState;
+extern SafetyState driveSafety;
+
+// ================= CONSTANT =================
+extern const uint8_t CH_THROTTLE;
+extern const uint8_t CH_STEER;
+
+// ================= IMPLEMENT =================
+void DriveTarget::update() {
+
+  if (ibusCommLost || driveSafety == SafetyState::EMERGENCY || systemState != SystemState::ACTIVE) {
+    targetL = 0;
+    targetR = 0;
+    return;
+  }
+
+  auto mapAxis = [](int16_t v) -> int16_t {
+    constexpr int16_t IN_MIN = 1000;
+    constexpr int16_t IN_MAX = 2000;
+    constexpr int16_t DB_MIN = 1450;
+    constexpr int16_t DB_MAX = 1550;
+    constexpr int16_t OUT_MAX = (int16_t)PWM_TOP;
+    constexpr int16_t OUT_MIN = -(int16_t)PWM_TOP;
+
+
+    if (v >= DB_MIN && v <= DB_MAX) return 0;
+
+    if (v < DB_MIN) {
+      long m = map(v, IN_MIN, DB_MIN, -OUT_MAX, 0);
+      return constrain(m, -OUT_MAX, 0);
+    }
+
+    long m = map(v, DB_MAX, IN_MAX, 0, OUT_MAX);
+    return constrain(m, 0, OUT_MAX);
+  };
+
+  int16_t thr = mapAxis(ibus.readChannel(CH_THROTTLE));
+  int16_t str = mapAxis(ibus.readChannel(CH_STEER));
+
+  float absThr = abs(thr);
+  float blend;
+  if (absThr <= 150) blend = 0.0f;
+  else if (absThr >= 450) blend = 1.0f;
+  else blend = (absThr - 150.0f) / 300.0f;
+
+  float arcL = thr + str;
+  float arcR = thr - str;
+
+  float k = abs(str) / (float)PWM_TOP;
+  if (str < 0) k = -k;
+
+  float diffL = thr * (1.0f + k);
+  float diffR = thr * (1.0f - k);
+
+  float outL = arcL * (1.0f - blend) + diffL * blend;
+  float outR = arcR * (1.0f - blend) + diffR * blend;
+
+  float maxMag = max(abs(outL), abs(outR));
+  if (maxMag > PWM_TOP) {
+    float scale = (float)PWM_TOP / maxMag;
+    outL *= scale;
+    outR *= scale;
+  }
+
+  targetL = (int16_t)outL;
+  targetR = (int16_t)outR;
+}
