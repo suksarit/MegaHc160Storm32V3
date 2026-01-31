@@ -1,0 +1,177 @@
+================================================================================
+MegaHc160Storm32V3 – COMPLETE SYSTEM DIAGRAM / WIRING / RC CONFIG
+Target  : Arduino Mega 2560
+Control : FlySky IBUS
+Drive   : H-Bridge 100A (2 Motor)
+Gimbal  : Storm32 (Serial Command)
+================================================================================
+
+1) SYSTEM ARCHITECTURE DIAGRAM
+--------------------------------------------------------------------------------
+
+ FlySky TX
+    |
+    | 2.4GHz
+    v
+ FS-iA6B Receiver
+    |
+    | IBUS (Serial)
+    v
++--------------------------------------------------+
+|              Arduino Mega 2560                   |
+|                                                  |
+|  Sensors        Drive Logic        Safety         |
+|  - Current  ->  DriveTarget   ->  Fault / Limit  |
+|  - Voltage      DriveController                  |
+|  - Temp         DriveStateMachine                |
+|                                                  |
+|  SDLogger (SPI)        MotorOutput (PWM/DIR)     |
+|  Storm32Controller (Serial)                      |
++--------------------+---------------+-------------+
+                     |               |
+                     v               v
+            H-Bridge Motor       Storm32 BGC
+                     |
+                     v
+                  DC Motors
+
+--------------------------------------------------------------------------------
+2) SOFTWARE FLOW (FROM REAL CODE)
+--------------------------------------------------------------------------------
+
+setup()
+  - Serial.begin()
+  - SystemConfig::load()
+  - DriveStateMachine::init()
+  - SafetyManager::init()
+  - SDLogger.begin()
+  - Storm32Controller.init()
+
+loop()
+  - CurrentSensor::update()
+  - VoltageSensor::update()
+  - TempSensor::update()
+  - DriveController::update()
+  - DriveStateMachine::update()
+  - SafetyManager::update()
+  - SDLogger::update()
+  - Storm32Controller::update()
+
+NOTE:
+- .ino DOES NOT decide forward / reverse
+- ALL motion logic is in DriveStateMachine + DriveController
+
+--------------------------------------------------------------------------------
+3) DRIVE STATE MACHINE DIAGRAM
+--------------------------------------------------------------------------------
+
+        START
+          |
+          v
+        IDLE
+          |
+     target != 0
+          |
+          v
+   DRIVE_ACTIVE
+   (FORWARD / REVERSE)
+      |        |
+   fault     throttle=0
+      |        |
+      v        v
+   SAFE_STOP  IDLE
+
+--------------------------------------------------------------------------------
+4) RC / FLYSKY IBUS CHANNEL SETUP
+--------------------------------------------------------------------------------
+
+Channel Assignment (Recommended)
+
+CH1 : Steering (Stick Right L/R)
+CH2 : Throttle Forward / Reverse (Stick Right U/D)
+CH3 : Speed Limit / Enable (Stick Left U/D)
+CH4 : ARM / DISARM (Switch)
+CH5 : Mode / Reserve
+
+IBUS Value Range
+- 1000 = MIN
+- 1500 = CENTER
+- 2000 = MAX
+
+--------------------------------------------------------------------------------
+5) DRIVE LOGIC
+--------------------------------------------------------------------------------
+
+Throttle (CH2)
+  > 1500  = FORWARD
+  < 1500  = REVERSE
+  ~ 1500  = STOP
+
+Steering (CH1)
+  < 1500  = TURN LEFT
+  > 1500  = TURN RIGHT
+
+Mixing Logic
+  LeftMotor  = Throttle + Steering
+  RightMotor = Throttle - Steering
+
+--------------------------------------------------------------------------------
+6) MOTOR DRIVER PIN MAPPING (MEGA 2560)
+--------------------------------------------------------------------------------
+
+Motor LEFT
+  PWM_L  -> D5
+  DIR_L  -> D22
+  EN_L   -> D24
+
+Motor RIGHT
+  PWM_R  -> D6
+  DIR_R  -> D23
+  EN_R   -> D25
+
+NOTE:
+- Pins must match MotorOutput.cpp
+- PWM pins chosen to avoid timer conflict
+
+--------------------------------------------------------------------------------
+7) SENSOR WIRING
+--------------------------------------------------------------------------------
+
+Current Sensor   -> A0 / A1
+Voltage Sensor   -> A2
+Temp Sensor      -> A3 or D30
+
+--------------------------------------------------------------------------------
+8) SD CARD (SPI – MEGA 2560)
+--------------------------------------------------------------------------------
+
+MOSI -> D51
+MISO -> D50
+SCK  -> D52
+CS   -> D53
+VCC  -> 5V
+GND  -> GND
+
+--------------------------------------------------------------------------------
+9) STORM32 CONNECTION
+--------------------------------------------------------------------------------
+
+Arduino Mega SerialX TX -> Storm32 RX
+Arduino Mega SerialX RX -> Storm32 TX
+GND                     -> GND
+
+Protocol : Serial Command (NO MAVLink)
+
+--------------------------------------------------------------------------------
+10) SUMMARY
+--------------------------------------------------------------------------------
+
+- MegaHc160Storm32V3 is a state-machine based drive system
+- .ino only orchestrates modules
+- Motion is controlled by DriveStateMachine + DriveController
+- Pin mapping must be defined consistently
+- This document is the missing system overview
+
+================================================================================
+END OF FILE
+================================================================================
