@@ -1,22 +1,14 @@
 // ========================================================================================
 // MegaHc160Storm32.ino  - RC Lawn Mower By TN MOWER
-// CONTEXT-BASED / LINKER-SAFE / PINMAP-CORRECT
-//
-//   ✔ Task 1: Loop Timing Enforcement
-//   ✔ Task 2: Sensor Warm-up & Plausibility
-//   ✔ Task 3: RecoveryManager (AUTO / MANUAL / LOCKOUT)
-//   ✔ Task 4: MANUAL confirm via IBUS
-//   ✔ Task 5.5: Retry + Blacklist Fault
-//   ✔ Task 5: Central Safe State
 // ========================================================================================
 
 #define DEBUG_SERIAL 1
 #if DEBUG_SERIAL
-  #define DBG(x)   Serial.print(x)
-  #define DBGL(x)  Serial.println(x)
+#define DBG(x) Serial.print(x)
+#define DBGL(x) Serial.println(x)
 #else
-  #define DBG(x)
-  #define DBGL(x)
+#define DBG(x)
+#define DBGL(x)
 #endif
 
 #define TEST_MODE 0
@@ -31,10 +23,8 @@
 #include <Wire.h>
 #include <EEPROM.h>
 #include <SPI.h>
-
 #include <Adafruit_ADS1X15.h>
 #include <Adafruit_MAX31865.h>
-
 #include "PinMap.h"
 #include "SystemTypes.h"
 #include "SystemConfig.h"
@@ -48,7 +38,7 @@
 #include "CurrentSensor.h"
 #include "DriveStateMachine.h"
 #include "MotorOutput.h"
-
+#include "Storm32Controller.h"
 // ========================================================================================
 // GLOBAL RUNTIME CONTEXT
 // ========================================================================================
@@ -60,15 +50,24 @@ RuntimeContext g_ctx = {
   DriveEvent::NONE,
   false,
 
-  0, 0, 0, 0,
+  0,
+  0,
+  0,
+  0,
 
-  {0, 0, 0, 0},
+  { 0, 0, 0, 0 },
   0.0f,
-  0, 0,
+  0,
+  0,
 
-  0, 0, 0,
+  0,
+  0,
+  0,
 
-  false, false, false, false
+  false,
+  false,
+  false,
+  false
 };
 
 // ========================================================================================
@@ -79,7 +78,7 @@ uint32_t lastIbusByte_ms = 0;
 bool ibusCommLost = true;
 
 uint32_t sensorWarmupStart_ms = 0;
-bool     sensorWarmupDone     = false;
+bool sensorWarmupDone = false;
 
 Adafruit_ADS1115 adsCur;
 Adafruit_ADS1115 adsVolt;
@@ -88,7 +87,7 @@ Adafruit_MAX31865 maxR(PIN_MAX_CS_R);
 
 Servo bladeServo;
 RecoveryManager recovery;
-
+Storm32Controller storm32(Serial2, ibus);
 // ========================================================================================
 // FUNCTION PROTOTYPES (LINKER-SAFE)
 // ========================================================================================
@@ -101,7 +100,7 @@ void driveSafe();
 // TASK 4: MANUAL CONFIRM VIA IBUS
 // ========================================================================================
 #define IBUS_CONFIRM_HOLD_MS 2500
-#define IBUS_CONFIRM_TH      1100
+#define IBUS_CONFIRM_TH 1100
 uint32_t ibusConfirmStart_ms = 0;
 
 static bool checkIbusManualConfirm(uint32_t now) {
@@ -114,8 +113,7 @@ static bool checkIbusManualConfirm(uint32_t now) {
   uint16_t ch1 = ibus.readChannel(0);
   uint16_t ch2 = ibus.readChannel(1);
 
-  bool gesture = (ch1 < IBUS_CONFIRM_TH) &&
-                 (ch2 < IBUS_CONFIRM_TH);
+  bool gesture = (ch1 < IBUS_CONFIRM_TH) && (ch2 < IBUS_CONFIRM_TH);
 
   if (gesture) {
     if (ibusConfirmStart_ms == 0) {
@@ -135,8 +133,10 @@ static bool checkIbusManualConfirm(uint32_t now) {
 // PWM SAFE CUT
 // ========================================================================================
 void driveSafe() {
-  OCR3A = 0; OCR3B = 0;
-  OCR4A = 0; OCR4B = 0;
+  OCR3A = 0;
+  OCR3B = 0;
+  OCR4A = 0;
+  OCR4B = 0;
 }
 
 // ========================================================================================
@@ -145,14 +145,12 @@ void driveSafe() {
 bool sensorPlausible() {
 
   for (uint8_t i = 0; i < 4; i++) {
-    if (g_ctx.curA[i] < CUR_MIN_PLAUSIBLE ||
-        g_ctx.curA[i] > CUR_MAX_PLAUSIBLE) {
+    if (g_ctx.curA[i] < CUR_MIN_PLAUSIBLE || g_ctx.curA[i] > CUR_MAX_PLAUSIBLE) {
       return false;
     }
   }
 
-  if (g_ctx.engineVolt < 0.0f ||
-      g_ctx.engineVolt > VOLT_MAX_PLAUSIBLE) {
+  if (g_ctx.engineVolt < 0.0f || g_ctx.engineVolt > VOLT_MAX_PLAUSIBLE) {
     return false;
   }
 
@@ -190,8 +188,8 @@ void updateSensors(uint32_t now) {
   for (uint8_t i = 0; i < 4; i++) g_ctx.curA[i] = 5.0f;
   g_ctx.tempDriverL = 45;
   g_ctx.tempDriverR = 47;
-  g_ctx.engineVolt  = 26.0f;
-  g_ctx.wdSensorOK  = true;
+  g_ctx.engineVolt = 26.0f;
+  g_ctx.wdSensorOK = true;
   return;
 #endif
 
@@ -230,6 +228,8 @@ void setup() {
   Serial.begin(115200);
   Serial1.begin(115200);
   ibus.begin(Serial1);
+
+  storm32.begin();
 
   sensorWarmupStart_ms = millis();
   recovery.begin();
@@ -280,6 +280,13 @@ void loop() {
       recovery.confirmManualRecovery();
       DBG("[RECOVERY] Manual confirm via IBUS\n");
     }
+    storm32.setSystemEnabled(g_ctx.systemState == SystemState::ACTIVE);
+
+    if (g_ctx.driveSafety == SafetyState::EMERGENCY) {
+      storm32.forceOff();
+    }
+
+    storm32.update(now);
 
     recovery.update(now);
 

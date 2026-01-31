@@ -103,6 +103,22 @@ constexpr uint32_t ENGINE_CONFIRM_MS        = 900;
 constexpr uint32_t ENGINE_RESTART_GUARD_MS  = 3000;
 constexpr uint32_t STARTER_MAX_MS           = 3000;
 
+// ========================================================================================
+// IBUS CHANNEL MAP (0-based index)
+// ========================================================================================
+
+// --- Drive ---
+#define IBUS_CH_STEER        0   // เลี้ยว
+#define IBUS_CH_THROTTLE     1   // เดินหน้า / ถอยหลัง
+
+// ================= EEPROM =================
+#define EEPROM_STORM32_BASE 200
+#define STORM32_MAGIC 0x32B3
+
+// --- Storm32 Gimbal ---
+#define IBUS_CH_STORM_PITCH  3
+#define IBUS_CH_STORM_YAW    9
+
 // ============================================================================
 // VOLTAGE SENSE CONFIG
 // ============================================================================

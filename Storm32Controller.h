@@ -8,14 +8,10 @@
 #include <Arduino.h>
 #include <IBusBM.h>
 #include <EEPROM.h>
+#include "SystemConfig.h"
 
-// ================= EEPROM =================
-#define EEPROM_STORM32_BASE 200
-#define STORM32_MAGIC 0x32B3
-
-// ================= iBUS Channels =================
-#define STORM32_CH_PITCH 3
-#define STORM32_CH_YAW   9
+#define STORM32_CH_PITCH IBUS_CH_STORM_PITCH
+#define STORM32_CH_YAW   IBUS_CH_STORM_YAW
 
 // ================= Storm32 Binary =================
 #define STORM32_CMD_CONTROL 0x19

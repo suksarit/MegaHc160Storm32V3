@@ -1,5 +1,5 @@
 // ========================================================================================
-// Storm32Controller.cpp  
+// Storm32Controller.cpp
 // ========================================================================================
 #include "Storm32Controller.h"
 
@@ -101,10 +101,10 @@ void Storm32Controller::update(uint32_t now) {
 
   // ------------------------------------------------
   // HEARTBEAT (10 Hz)
-// ------------------------------------------------
+  // ------------------------------------------------
   if (now - lastTxMs >= 100) {
     int16_t p = (int16_t)(currentPitch * 100.0f);
-    int16_t y = (int16_t)(currentYaw   * 100.0f);
+    int16_t y = (int16_t)(currentYaw * 100.0f);
     sendBinaryControl(p, y);
   }
 
@@ -131,7 +131,7 @@ void Storm32Controller::processSerial() {
   }
 
   if (stormSerial.available()) {
-    stormSerial.read();          // alive byte only
+    stormSerial.read();  // alive byte only
     lastAckMs = millis();
 
     if (state == Storm32State::INIT || state == Storm32State::LOST) {
@@ -188,13 +188,13 @@ void Storm32Controller::enterState(Storm32State newState) {
 void Storm32Controller::updateTargetFromIBUS() {
 
   uint16_t rcPitch = ibus.readChannel(STORM32_CH_PITCH);
-  uint16_t rcYaw   = ibus.readChannel(STORM32_CH_YAW);
+  uint16_t rcYaw = ibus.readChannel(STORM32_CH_YAW);
 
   rcPitch = constrain(rcPitch, 1000, 2000);
-  rcYaw   = constrain(rcYaw,   1000, 2000);
+  rcYaw = constrain(rcYaw, 1000, 2000);
 
   targetPitch = mapRCtoDeg(rcPitch, cfg.pitchLimitDeg, cfg.invertPitch);
-  targetYaw   = mapRCtoDeg(rcYaw,   cfg.yawLimitDeg,   cfg.invertYaw);
+  targetYaw = mapRCtoDeg(rcYaw, cfg.yawLimitDeg, cfg.invertYaw);
 }
 
 // =================================================
@@ -207,7 +207,7 @@ void Storm32Controller::applyMotion(uint32_t) {
                  : cfg.slewNormal;
 
   currentPitch = stepToward(currentPitch, targetPitch, slew);
-  currentYaw   = stepToward(currentYaw,   targetYaw,   slew);
+  currentYaw = stepToward(currentYaw, targetYaw, slew);
 }
 
 // =================================================
@@ -273,10 +273,10 @@ void Storm32Controller::loadConfig() {
   }
 
   cfg.pitchLimitDeg = constrain(cfg.pitchLimitDeg, 5.0f, 45.0f);
-  cfg.yawLimitDeg   = constrain(cfg.yawLimitDeg,   5.0f, 90.0f);
+  cfg.yawLimitDeg = constrain(cfg.yawLimitDeg, 5.0f, 90.0f);
 
-  cfg.slewNormal    = constrain(cfg.slewNormal,    0.5f, 5.0f);
-  cfg.slewDegraded  = constrain(cfg.slewDegraded,  0.2f, 3.0f);
+  cfg.slewNormal = constrain(cfg.slewNormal, 0.5f, 5.0f);
+  cfg.slewDegraded = constrain(cfg.slewDegraded, 0.2f, 3.0f);
 }
 
 void Storm32Controller::saveConfig() {
@@ -286,17 +286,17 @@ void Storm32Controller::saveConfig() {
 
 void Storm32Controller::setDefaultConfig() {
   cfg.invertPitch = false;
-  cfg.invertYaw   = false;
+  cfg.invertYaw = false;
 
   cfg.pitchLimitDeg = 30.0f;
-  cfg.yawLimitDeg   = 45.0f;
+  cfg.yawLimitDeg = 45.0f;
 
-  cfg.slewNormal    = 3.0f;
-  cfg.slewDegraded  = 1.0f;
+  cfg.slewNormal = 3.0f;
+  cfg.slewDegraded = 1.0f;
 
-  cfg.ackTimeout1  = 400;
-  cfg.ackTimeout2  = 900;
-  cfg.ackTimeout3  = 2000;
+  cfg.ackTimeout1 = 400;
+  cfg.ackTimeout2 = 900;
+  cfg.ackTimeout3 = 2000;
 
   cfg.magic = STORM32_MAGIC;
 }
@@ -309,8 +309,5 @@ Storm32State Storm32Controller::getState() const {
 }
 
 bool Storm32Controller::isLocked() const {
-  return hardDisabled ||
-         !systemEnabled ||
-         state == Storm32State::INIT ||
-         state == Storm32State::EMERGENCY;
+  return hardDisabled || !systemEnabled || state == Storm32State::INIT || state == Storm32State::EMERGENCY;
 }

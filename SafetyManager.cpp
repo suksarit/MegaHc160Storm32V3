@@ -1,5 +1,5 @@
 // ========================================================================================
-// SafetyManager.cpp  (CONTEXT-BASED / LINKER-SAFE)
+// SafetyManager.cpp 
 // ========================================================================================
 #include "SafetyManager.h"
 #include "SystemConfig.h"

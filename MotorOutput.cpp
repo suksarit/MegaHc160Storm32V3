@@ -1,5 +1,5 @@
 // ========================================================================================
-// MotorOutput.cpp  (FIX: OWN reverse-deadtime state, RuntimeContext)
+// MotorOutput.cpp  
 // ========================================================================================
 #include "MotorOutput.h"
 #include "RuntimeContext.h"
