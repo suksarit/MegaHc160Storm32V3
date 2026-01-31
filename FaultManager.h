@@ -33,16 +33,11 @@ enum class FaultCode : uint8_t {
 };
 
 // ============================================================================
-// GLOBAL FAULT STATE
-// ============================================================================
-extern FaultCode activeFault;
-extern bool faultLatched;
-
-// ============================================================================
 // PUBLIC API
 // ============================================================================
 
 // latch fault ครั้งเดียว (ไม่ overwrite)
+// ❗ จะ set g_ctx.faultLatched ภายใน
 void latchFault(FaultCode code);
 
 // ตัดของจริงทั้งหมด (motor + blade + ignition + starter)

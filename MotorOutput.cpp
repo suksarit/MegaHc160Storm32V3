@@ -1,20 +1,16 @@
 // ========================================================================================
-// MotorOutput.cpp  (FIX: OWN reverse-deadtime state)
+// MotorOutput.cpp  (FIX: OWN reverse-deadtime state, RuntimeContext)
 // ========================================================================================
 #include "MotorOutput.h"
-#include "SystemTypes.h"
+#include "RuntimeContext.h"
 #include "SystemConfig.h"
 #include "PinMap.h"
+#include <Arduino.h>
 
-// ================= EXTERN (logic owner) =================
-extern int16_t targetL, targetR;
-extern int16_t curL, curR;
+// ================= RUNTIME CONTEXT =================
+extern RuntimeContext g_ctx;
 
-extern DriveState  driveState;
-extern SafetyState driveSafety;
-extern SystemState systemState;
-
-// HW safe hook
+// HW safe hook (ยังเป็น function hook ตามเดิม)
 extern void driveSafe();
 
 // ================= INTERNAL STATE (OWNED HERE) =================
@@ -67,27 +63,36 @@ void MotorOutput::begin() {
 void MotorOutput::apply(uint32_t now) {
 
   // ---------- HARD FAULT ----------
-  if (systemState == SystemState::FAULT ||
-      driveState  == DriveState::LOCKED) {
+  if (g_ctx.systemState == SystemState::FAULT ||
+      g_ctx.driveState  == DriveState::LOCKED) {
 
     driveSafe();
-    curL = curR = targetL = targetR = 0;
-    revBlockUntilL = revBlockUntilR = 0;
+
+    g_ctx.curL    = 0;
+    g_ctx.curR    = 0;
+    g_ctx.targetL = 0;
+    g_ctx.targetR = 0;
+
+    revBlockUntilL = 0;
+    revBlockUntilR = 0;
+
     setMotorL(0);
     setMotorR(0);
     return;
   }
 
   // ---------- EMERGENCY ----------
-  if (driveSafety == SafetyState::EMERGENCY) {
-    targetL = targetR = 0;
+  if (g_ctx.driveSafety == SafetyState::EMERGENCY) {
+    g_ctx.targetL = 0;
+    g_ctx.targetR = 0;
   }
 
   // ---------- REVERSE DEADTIME ----------
-  bool wantRevL = (curL > 0 && targetL < 0) ||
-                  (curL < 0 && targetL > 0);
-  bool wantRevR = (curR > 0 && targetR < 0) ||
-                  (curR < 0 && targetR > 0);
+  bool wantRevL = (g_ctx.curL > 0 && g_ctx.targetL < 0) ||
+                  (g_ctx.curL < 0 && g_ctx.targetL > 0);
+
+  bool wantRevR = (g_ctx.curR > 0 && g_ctx.targetR < 0) ||
+                  (g_ctx.curR < 0 && g_ctx.targetR > 0);
 
   if (wantRevL && revBlockUntilL == 0)
     revBlockUntilL = now + REVERSE_DEADTIME_MS;
@@ -95,24 +100,28 @@ void MotorOutput::apply(uint32_t now) {
   if (wantRevR && revBlockUntilR == 0)
     revBlockUntilR = now + REVERSE_DEADTIME_MS;
 
-  if (revBlockUntilL && now < revBlockUntilL) targetL = 0;
-  else if (revBlockUntilL && now >= revBlockUntilL) revBlockUntilL = 0;
+  if (revBlockUntilL && now < revBlockUntilL)
+    g_ctx.targetL = 0;
+  else if (revBlockUntilL && now >= revBlockUntilL)
+    revBlockUntilL = 0;
 
-  if (revBlockUntilR && now < revBlockUntilR) targetR = 0;
-  else if (revBlockUntilR && now >= revBlockUntilR) revBlockUntilR = 0;
+  if (revBlockUntilR && now < revBlockUntilR)
+    g_ctx.targetR = 0;
+  else if (revBlockUntilR && now >= revBlockUntilR)
+    revBlockUntilR = 0;
 
   // ---------- RAMP SELECT ----------
   int16_t step;
-  if (targetL == 0 && targetR == 0) step = 2;
-  else if (driveState == DriveState::SOFT_STOP) step = 2;
-  else if (driveState == DriveState::LIMP)      step = 4;
-  else                                          step = 5;
+  if (g_ctx.targetL == 0 && g_ctx.targetR == 0)      step = 2;
+  else if (g_ctx.driveState == DriveState::SOFT_STOP) step = 2;
+  else if (g_ctx.driveState == DriveState::LIMP)      step = 4;
+  else                                                 step = 5;
 
   // ---------- APPLY RAMP ----------
-  curL = ramp(curL, targetL, step);
-  curR = ramp(curR, targetR, step);
+  g_ctx.curL = ramp(g_ctx.curL, g_ctx.targetL, step);
+  g_ctx.curR = ramp(g_ctx.curR, g_ctx.targetR, step);
 
   // ---------- OUTPUT ----------
-  setMotorL(curL);
-  setMotorR(curR);
+  setMotorL(g_ctx.curL);
+  setMotorR(g_ctx.curR);
 }

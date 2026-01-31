@@ -1,53 +1,38 @@
 // ========================================================================================
-// FaultManager.cpp
+// FaultManager.cpp  (CONTEXT-BASED / PINMAP-CORRECT)
 // ========================================================================================
 #include "FaultManager.h"
 
 #include <EEPROM.h>
 #include <Servo.h>
 
-// ================= EXTERN FROM SYSTEM (.ino) =================
-extern SystemState systemState;
-extern DriveState  driveState;
-extern BladeState  bladeState;
-extern SafetyState driveSafety;
+#include "RuntimeContext.h"
+#include "PinMap.h"
 
-extern float   curA[4];
-extern int16_t curL;
-extern int16_t curR;
-extern int16_t tempDriverL;
-extern int16_t tempDriverR;
+// ========================================================================================
+// GLOBAL CONTEXT
+// ========================================================================================
+extern RuntimeContext g_ctx;
 
-// ---------------- HW hooks ----------------
+// ---------------- HW hooks (INTENTIONAL EXTERN) ----------------
 extern void driveSafe();
 extern Servo bladeServo;
 
-// ---------------- Critical outputs ----------------
-extern uint8_t PIN_DRV_ENABLE;
-extern uint8_t RELAY_IGNITION;
-extern uint8_t RELAY_STARTER;
-extern uint8_t PIN_BUZZER;
-extern uint8_t RELAY_WARN;
-
 // ============================================================================
-// FAULT STATE
+// FAULT STATE (OWNED HERE)
 // ============================================================================
-FaultCode activeFault = FaultCode::NONE;
-bool faultLatched = false;
+static FaultCode activeFault = FaultCode::NONE;
 
 // ============================================================================
 // LATCH FAULT (NO POLICY, SNAPSHOT ONLY)
 // ============================================================================
 void latchFault(FaultCode code) {
 
-  if (faultLatched) return;
+  if (g_ctx.faultLatched) return;
 
-  activeFault  = code;
-  faultLatched = true;
+  activeFault        = code;
+  g_ctx.faultLatched = true;
 
-  // --------------------------------------------------
-  // EEPROM FAULT HISTORY
-  // --------------------------------------------------
   EEPROM.put(100, code);
 
 #if DEBUG_SERIAL
@@ -56,30 +41,30 @@ void latchFault(FaultCode code) {
   Serial.println((uint8_t)code);
 
   Serial.print(F("SystemState="));
-  Serial.println((uint8_t)systemState);
+  Serial.println((uint8_t)g_ctx.systemState);
   Serial.print(F("DriveState="));
-  Serial.println((uint8_t)driveState);
+  Serial.println((uint8_t)g_ctx.driveState);
   Serial.print(F("BladeState="));
-  Serial.println((uint8_t)bladeState);
+  Serial.println((uint8_t)g_ctx.bladeState);
   Serial.print(F("Safety="));
-  Serial.println((uint8_t)driveSafety);
+  Serial.println((uint8_t)g_ctx.driveSafety);
 
   Serial.print(F("CurA: "));
   for (uint8_t i = 0; i < 4; i++) {
-    Serial.print(curA[i]);
+    Serial.print(g_ctx.curA[i]);
     Serial.print(F(" "));
   }
   Serial.println();
 
   Serial.print(F("TempDriverL="));
-  Serial.print(tempDriverL);
+  Serial.print(g_ctx.tempDriverL);
   Serial.print(F(" TempDriverR="));
-  Serial.println(tempDriverR);
+  Serial.println(g_ctx.tempDriverR);
 
   Serial.print(F("PWM L/R="));
-  Serial.print(curL);
+  Serial.print(g_ctx.curL);
   Serial.print(F("/"));
-  Serial.println(curR);
+  Serial.println(g_ctx.curR);
 
   Serial.println(F("===================================="));
 #endif
@@ -102,24 +87,24 @@ void handleFaultImmediateCut() {
   // MOTOR DRIVE (PWM + DIR)
   // -----------------------------
   driveSafe();
-  curL = 0;
-  curR = 0;
+  g_ctx.curL = 0;
+  g_ctx.curR = 0;
 
   // -----------------------------
   // DRIVER ENABLE
   // -----------------------------
-  digitalWrite(PIN_DRV_ENABLE, LOW);
+  digitalWrite(PIN_DRIVER_ENABLE, LOW);
 
   // -----------------------------
   // ENGINE / BLADE
   // -----------------------------
   bladeServo.writeMicroseconds(1000);
-  digitalWrite(RELAY_IGNITION, LOW);
-  digitalWrite(RELAY_STARTER,  LOW);
+  digitalWrite(PIN_RELAY_IGNITION, LOW);
+  digitalWrite(PIN_RELAY_STARTER,  LOW);
 
   // -----------------------------
   // ALERT / BUZZER
   // -----------------------------
   digitalWrite(PIN_BUZZER, HIGH);
-  digitalWrite(RELAY_WARN, HIGH);
+  digitalWrite(PIN_RELAY_WARN, HIGH);
 }

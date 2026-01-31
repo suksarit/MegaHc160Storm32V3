@@ -1,28 +1,16 @@
 // ========================================================================================
-// SDLogger.cpp  (FIXED / HARDENED)
+// SDLogger.cpp  (CONTEXT-BASED / HARDENED)
 // ========================================================================================
 
 #include "SDLogger.h"
 #include "PinMap.h"
 #include "SystemConfig.h"
+#include "RuntimeContext.h"
 
 // ========================================================================================
-// EXTERN RUNTIME DATA (owner = .ino)
+// GLOBAL CONTEXT
 // ========================================================================================
-extern float     curA[4];
-extern float     engineVolt;
-extern int16_t   curL;
-extern int16_t   curR;
-extern int16_t   tempDriverL;
-extern int16_t   tempDriverR;
-
-extern SystemState systemState;
-extern DriveState  driveState;
-extern BladeState  bladeState;
-extern SafetyState driveSafety;
-extern DriveEvent  lastDriveEvent;
-
-extern bool faultLatched;
+extern RuntimeContext g_ctx;
 
 // ========================================================================================
 // INTERNAL STATE
@@ -144,30 +132,33 @@ void SDLogger::log(uint32_t now) {
 
   r.time_ms = now;
 
-  r.curA[0] = curA[0];
-  r.curA[1] = curA[1];
-  r.curA[2] = curA[2];
-  r.curA[3] = curA[3];
+  // currents
+  for (uint8_t i = 0; i < 4; i++) {
+    r.curA[i] = g_ctx.curA[i];
+  }
 
   r.curMax = max(
-    max(curA[0], curA[1]),
-    max(curA[2], curA[3])
+    max(g_ctx.curA[0], g_ctx.curA[1]),
+    max(g_ctx.curA[2], g_ctx.curA[3])
   );
 
-  r.tempDriverL = tempDriverL;
-  r.tempDriverR = tempDriverR;
-  r.engineVolt  = engineVolt;
+  // temps / voltage
+  r.tempDriverL = g_ctx.tempDriverL;
+  r.tempDriverR = g_ctx.tempDriverR;
+  r.engineVolt  = g_ctx.engineVolt;
 
-  r.pwmL = curL;
-  r.pwmR = curR;
+  // pwm
+  r.pwmL = g_ctx.curL;
+  r.pwmR = g_ctx.curR;
 
-  r.systemState = (uint8_t)systemState;
-  r.driveState  = (uint8_t)driveState;
-  r.bladeState  = (uint8_t)bladeState;
-  r.safetyState = (uint8_t)driveSafety;
-  r.driveEvent  = (uint8_t)lastDriveEvent;
+  // states
+  r.systemState = (uint8_t)g_ctx.systemState;
+  r.driveState  = (uint8_t)g_ctx.driveState;
+  r.bladeState  = (uint8_t)g_ctx.bladeState;
+  r.safetyState = (uint8_t)g_ctx.driveSafety;
+  r.driveEvent  = (uint8_t)g_ctx.lastDriveEvent;
 
-  r.faultLatched = faultLatched ? 1 : 0;
+  r.faultLatched = g_ctx.faultLatched ? 1 : 0;
 
   wrIdx = (wrIdx + 1) % SD_LOG_BUFFER_SIZE;
   logCount++;
@@ -234,14 +225,19 @@ void SDLogger::logWarn(uint32_t now,
                        int16_t tempR,
                        SafetyState safety) {
 
+  (void)curA;   // kept for API compatibility
+  (void)tempL;
+  (void)tempR;
+  (void)safety;
+
   if (!sdReady || !logFile) {
     tryRecover();
     return;
   }
 
   float curMax = max(
-    max(curA[0], curA[1]),
-    max(curA[2], curA[3])
+    max(g_ctx.curA[0], g_ctx.curA[1]),
+    max(g_ctx.curA[2], g_ctx.curA[3])
   );
 
   // format: time,WARN,curMax,tempL,tempR,safety
@@ -249,11 +245,11 @@ void SDLogger::logWarn(uint32_t now,
   logFile.print(F(",WARN,"));
   logFile.print(curMax, 2);
   logFile.print(',');
-  logFile.print(tempL);
+  logFile.print(g_ctx.tempDriverL);
   logFile.print(',');
-  logFile.print(tempR);
+  logFile.print(g_ctx.tempDriverR);
   logFile.print(',');
-  logFile.println((uint8_t)safety);
+  logFile.println((uint8_t)g_ctx.driveSafety);
 
   logFile.flush();   // WARN = event สำคัญ
 }

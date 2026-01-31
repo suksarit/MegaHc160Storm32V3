@@ -1,8 +1,14 @@
 // ========================================================================================
-// SafetyManager.cpp
+// SafetyManager.cpp  (CONTEXT-BASED / LINKER-SAFE)
 // ========================================================================================
 #include "SafetyManager.h"
 #include "SystemConfig.h"
+#include "RuntimeContext.h"
+
+// ========================================================================================
+// GLOBAL CONTEXT
+// ========================================================================================
+extern RuntimeContext g_ctx;
 
 // ============================================================================
 // SINGLE SAFETY DECISION FUNCTION
@@ -12,16 +18,18 @@ SafetyState decideSafety(void) {
   // --------------------------------------------------
   // HARD FAULT ALWAYS WINS
   // --------------------------------------------------
-  if (faultLatched) {
+  if (g_ctx.faultLatched) {
     return SafetyState::EMERGENCY;
   }
 
   // --------------------------------------------------
   // CURRENT CHECK (MAX OF ALL CHANNELS)
   // --------------------------------------------------
-  float curMax = curA[0];
+  float curMax = g_ctx.curA[0];
   for (uint8_t i = 1; i < 4; i++) {
-    if (curA[i] > curMax) curMax = curA[i];
+    if (g_ctx.curA[i] > curMax) {
+      curMax = g_ctx.curA[i];
+    }
   }
 
   // ---------- EMERGENCY ----------
@@ -37,13 +45,13 @@ SafetyState decideSafety(void) {
   // --------------------------------------------------
   // TEMPERATURE CHECK
   // --------------------------------------------------
-  if (tempDriverL >= TEMP_LIMP_C ||
-      tempDriverR >= TEMP_LIMP_C) {
+  if (g_ctx.tempDriverL >= TEMP_LIMP_C ||
+      g_ctx.tempDriverR >= TEMP_LIMP_C) {
     return SafetyState::EMERGENCY;
   }
 
-  if (tempDriverL >= TEMP_WARN_C ||
-      tempDriverR >= TEMP_WARN_C) {
+  if (g_ctx.tempDriverL >= TEMP_WARN_C ||
+      g_ctx.tempDriverR >= TEMP_WARN_C) {
     return SafetyState::WARN;
   }
 

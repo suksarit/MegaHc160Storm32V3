@@ -1,46 +1,48 @@
 // ========================================================================================
-// DriveStateMachine.cpp
+// DriveStateMachine.cpp  (CONTEXT-BASED / LINKER-SAFE)
 // ========================================================================================
 #include "DriveStateMachine.h"
 #include "DriveTarget.h"
 #include "SystemTypes.h"
 #include "SystemConfig.h"
+#include "RuntimeContext.h"
 
-// ================= EXTERN =================
-extern DriveState  driveState;
-extern SystemState systemState;
-extern SafetyState driveSafety;
+// ========================================================================================
+// GLOBAL CONTEXT
+// ========================================================================================
+extern RuntimeContext g_ctx;
 
-extern int16_t targetL;
-extern int16_t targetR;
-extern int16_t curL;
-extern int16_t curR;
-
+// ========================================================================================
+// INTERNAL STATE
+// ========================================================================================
 static uint32_t driveSoftStopStart_ms = 0;
+
 // ================= WARN DERATE CONFIG =================
 // ลดกำลังเมื่อ WARN (ไม่เปลี่ยน state)
 static constexpr uint8_t WARN_DERATE_PERCENT = 70;   // 70%
 
-// ================= IMPLEMENT =================
+// ========================================================================================
+// IMPLEMENT
+// ========================================================================================
 void DriveStateMachine::update(uint32_t now) {
 
   static DriveState last = DriveState::IDLE;
   static uint32_t limpSafeStart_ms = 0;
 
-  switch (driveState) {
+  switch (g_ctx.driveState) {
 
     // --------------------------------------------------
     case DriveState::IDLE:
-      targetL = 0;
-      targetR = 0;
-      curL    = 0;
-      curR    = 0;
+      g_ctx.targetL = 0;
+      g_ctx.targetR = 0;
+      g_ctx.curL    = 0;
+      g_ctx.curR    = 0;
 
       limpSafeStart_ms = 0;
       driveSoftStopStart_ms = 0;
 
-      if (systemState == SystemState::ACTIVE) {
-        driveState = DriveState::RUN;
+      if (g_ctx.systemState == SystemState::ACTIVE) {
+        g_ctx.driveState = DriveState::RUN;
       }
       break;
 
@@ -49,23 +51,22 @@ void DriveStateMachine::update(uint32_t now) {
       DriveTarget::update();
 
       // ---------- SAFETY HANDLING ----------
-      if (driveSafety == SafetyState::EMERGENCY) {
-        driveState = DriveState::SOFT_STOP;
+      if (g_ctx.driveSafety == SafetyState::EMERGENCY) {
+        g_ctx.driveState = DriveState::SOFT_STOP;
         break;
       }
 
-      if (driveSafety == SafetyState::LIMP) {
-        driveState = DriveState::LIMP;
+      if (g_ctx.driveSafety == SafetyState::LIMP) {
+        g_ctx.driveState = DriveState::LIMP;
         limpSafeStart_ms = 0;
         break;
       }
 
       // ---------- WARN DERATE ----------
-      if (driveSafety == SafetyState::WARN) {
-        targetL = (targetL * WARN_DERATE_PERCENT) / 100;
-        targetR = (targetR * WARN_DERATE_PERCENT) / 100;
+      if (g_ctx.driveSafety == SafetyState::WARN) {
+        g_ctx.targetL = (g_ctx.targetL * WARN_DERATE_PERCENT) / 100;
+        g_ctx.targetR = (g_ctx.targetR * WARN_DERATE_PERCENT) / 100;
       }
-
       break;
 
     // --------------------------------------------------
@@ -73,20 +74,20 @@ void DriveStateMachine::update(uint32_t now) {
       DriveTarget::update();
 
       // ลดกำลังแบบ hard สำหรับ LIMP
-      targetL /= 2;
-      targetR /= 2;
+      g_ctx.targetL /= 2;
+      g_ctx.targetR /= 2;
 
-      if (driveSafety == SafetyState::EMERGENCY) {
-        driveState = DriveState::SOFT_STOP;
+      if (g_ctx.driveSafety == SafetyState::EMERGENCY) {
+        g_ctx.driveState = DriveState::SOFT_STOP;
         break;
       }
 
       // ฟื้นจาก LIMP → SAFE เท่านั้น
-      if (driveSafety == SafetyState::SAFE) {
+      if (g_ctx.driveSafety == SafetyState::SAFE) {
         if (limpSafeStart_ms == 0) {
           limpSafeStart_ms = now;
         } else if (now - limpSafeStart_ms >= LIMP_RECOVER_MS) {
-          driveState = DriveState::RUN;
+          g_ctx.driveState = DriveState::RUN;
           limpSafeStart_ms = 0;
         }
       } else {
@@ -96,12 +97,12 @@ void DriveStateMachine::update(uint32_t now) {
 
     // --------------------------------------------------
     case DriveState::SOFT_STOP:
-      targetL = 0;
-      targetR = 0;
+      g_ctx.targetL = 0;
+      g_ctx.targetR = 0;
 
-      if ((curL == 0 && curR == 0) ||
+      if ((g_ctx.curL == 0 && g_ctx.curR == 0) ||
           (now - driveSoftStopStart_ms >= DRIVE_SOFT_STOP_TIMEOUT_MS)) {
-        driveState = DriveState::LOCKED;
+        g_ctx.driveState = DriveState::LOCKED;
       }
       break;
 
@@ -114,12 +115,12 @@ void DriveStateMachine::update(uint32_t now) {
   // --------------------------------------------------
   // STATE TRANSITION HOOK
   // --------------------------------------------------
-  if (driveState != last) {
+  if (g_ctx.driveState != last) {
 
-    if (driveState == DriveState::SOFT_STOP) {
+    if (g_ctx.driveState == DriveState::SOFT_STOP) {
       driveSoftStopStart_ms = now;
     }
 
-    last = driveState;
+    last = g_ctx.driveState;
   }
 }

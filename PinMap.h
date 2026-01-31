@@ -1,9 +1,6 @@
 /*==============================================================================
   File: PinMap.h
-  Project: MegaHc160Storm32V3
-  Description:
-    Centralized pin mapping (AUDITED FROM REAL CODE)
-    Source of truth: audit of .ino + ALL .cpp files
+  Project: MegaHc160Storm32V3 
 ==============================================================================*/
 
 #ifndef PINMAP_H
@@ -12,24 +9,24 @@
 #include <Arduino.h>
 
 /*==============================================================================
-  CURRENT SENSOR (from CurrentSensor.cpp)
+  CURRENT SENSOR
 ==============================================================================*/
 #define PIN_CURRENT_LEFT        A0
 #define PIN_CURRENT_RIGHT       A1
 
 /*==============================================================================
-  VOLTAGE SENSOR (from VoltageSensor.cpp)
+  VOLTAGE SENSOR
 ==============================================================================*/
 #define PIN_VOLTAGE_MAIN        A2
 
 /*==============================================================================
-  TEMPERATURE SENSOR (from TempSensor.cpp)
+  TEMPERATURE SENSOR (MAX31865)
 ==============================================================================*/
-#define PIN_TEMP_DRIVER_LEFT   A3
-#define PIN_TEMP_DRIVER_RIGHT  A4
+#define PIN_TEMP_DRIVER_LEFT    A3
+#define PIN_TEMP_DRIVER_RIGHT   A4
 
 /*==============================================================================
-  MOTOR OUTPUT (from MotorOutput.cpp)
+  MOTOR OUTPUT (H-Bridge)
 ==============================================================================*/
 // LEFT MOTOR
 #define PIN_MOTOR_L_PWM         5
@@ -42,21 +39,37 @@
 #define PIN_MOTOR_R_EN          25
 
 /*==============================================================================
-  SD CARD (from SDLogger.cpp)
+  SYSTEM / POWER / SAFETY OUTPUTS
+==============================================================================*/
+#define PIN_DRIVER_ENABLE       33
+#define PIN_BUZZER              30
+#define PIN_RELAY_WARN          31
+#define PIN_RELAY_IGNITION      34   // ใช้ขาจริงตามฮาร์ดแวร์
+#define PIN_RELAY_STARTER       35   // ใช้ขาจริงตามฮาร์ดแวร์
+#define PIN_CUR_TRIP            32   // over-current hardware trip
+
+/*==============================================================================
+  SERVO (ENGINE / BLADE)
+==============================================================================*/
+#define PIN_SERVO_ENGINE        9
+
+/*==============================================================================
+  MAX31865 CHIP SELECT
+==============================================================================*/
+#define PIN_MAX_CS_L            49
+#define PIN_MAX_CS_R            48
+
+/*==============================================================================
+  SD CARD
 ==============================================================================*/
 #define PIN_SD_CS               53
 // SPI hardware pins on Mega 2560 (implicit)
 // MOSI = 51, MISO = 50, SCK = 52
 
 /*==============================================================================
-  STORM32 CONTROLLER (from Storm32Controller.cpp)
+  STORM32 CONTROLLER
 ==============================================================================*/
 #define STORM32_SERIAL          Serial2
 // Mega 2560 fixed pins: TX2 = D16, RX2 = D17
-
-/*==============================================================================
-  DEBUG SERIAL (from .ino)
-==============================================================================*/
-#define DEBUG_SERIAL            Serial
 
 #endif // PINMAP_H
